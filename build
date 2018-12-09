@@ -1,0 +1,70 @@
+#!/bin/bash
+
+set -eu
+
+# absolute path to the directory of this file
+readonly DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
+
+# the directory the build git repository will go to
+readonly OUT_DIR=$DIR/out
+
+# the number of steps that will be applied
+readonly STEPS=3
+
+# write text in yellow
+function say() {
+  echo -e "\033[33m$1\033[0m"
+}
+
+# write text in red and exit unsuccessfully
+function bail() {
+  echo -e "\033[31m$1\033[0m"
+  exit 1
+}
+
+# fully expanded form of the rsync command we'll call to sync a step folder to the output folder
+function sync() {
+  rsync --recursive \
+        --times \
+        --ignore-times \
+        --checksum \
+        --verbose \
+        $1 $2
+}
+
+function recreateOutputDirectory() {
+  say "dropping and recreating output folder..."
+  rm -r $OUT_DIR
+  mkdir $OUT_DIR
+}
+
+# ensure rsync, git and seq are installed
+[ -z "$(which rsync)" ] && bail "rsync must be installed"
+[ -z "$(which git)" ] && bail "git must be installed"
+[ -z "$(which seq)" ] && bail "seq must be installed"
+
+# drop and recreate the output directory if it already exists
+[ -e $OUT_DIR ] && recreateOutputDirectory
+
+# initialize the output directory as a git repository
+cd $OUT_DIR
+git init
+
+# iterate over every step, sync that step to the output folder then add, commit
+# and tag the changes to the output git repository.
+for x in `seq 1 $STEPS`; do
+  say "applying step $x"
+
+  STEP_DIR=$DIR/step-$x
+
+  # ensure the step directory exists
+  [ ! -d "$STEP_DIR" ] && bail "$STEP_DIR is not a directory"
+
+  sync $STEP_DIR/ $OUT_DIR
+
+  cd $OUT_DIR
+
+  git add -A
+  git commit -m "Step $x"
+  git tag step-$x
+done
